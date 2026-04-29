@@ -153,7 +153,7 @@ if __name__ == "__main__":
     mp.freeze_support() 
     
     print("\n" + "="*60)
-    print("🚀 STARTING DECENTRALIZED STEGO CHAT POC")
+    print("STARTING DECENTRALIZED STEGO CHAT POC")
     print("Spawning two isolated processes. Please check RAM usage.")
     print("="*60 + "\n")
 

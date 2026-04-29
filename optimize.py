@@ -150,7 +150,7 @@ if __name__ == "__main__":
     )
 
     print("\n" + "="*50)
-    print("🎯 OPTIMIZATION FINISHED 🎯")
+    print("OPTIMIZATION FINISHED")
     print("="*50)
     
     # Extract Pareto front (the best trade-offs between efficiency and readability)
