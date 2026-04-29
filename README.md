@@ -43,7 +43,7 @@ Download a quantized `.gguf` model (e.g., Qwen, Mistral) from HuggingFace. Place
 
 *(Note: In testing I used this model: [LFM2-8B-A1B Q6_K](https://huggingface.co/LiquidAI/LFM2-8B-A1B-GGUF). Also tested Qwen3-4B and 8B. Smaller models might work but hyperparameter optimization would be needed)*
 
-Update the `MODEL_PATH` variable in `gui_app.py` or `cli_poc.py` to match your downloaded file.
+Update the `MODEL_PATH` variable in `gui_poc.py` or `cli_poc.py` to match your downloaded file.
 
 ---
 
@@ -53,7 +53,7 @@ To prove that no memory is shared and the math works perfectly, the repository i
 
 **1. Run the App:**
 ```bash
-python gui_app.py
+python gui_poc.py
 ```
 
 **2. How to Test:**
@@ -77,7 +77,7 @@ The code is modularized for readability:
 * `llm.py` — The lightweight wrapper around `llama-cpp-python`.
 * `codec.py` — Bridges the LLM and Arithmetic Coder to turn text into bits and vice-versa.
 * `stego.py` — The orchestrator containing `generate_stego` and `extract_stego`.
-* `gui_app.py` — The multi-process tkinter Proof of Concept app.
+* `gui_poc.py` — The multi-process tkinter Proof of Concept app.
 
 ---
 
