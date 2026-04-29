@@ -26,6 +26,7 @@ StegoChat uses **Arithmetic Coding** operated in reverse.
 
 **🔓 Extracted Secret:** `"A secret message that is inside of a plain text omg"`
 
+![StegoChat GUI Screenshot](./assets/gui_poc_image.PNG)
 ---
 
 ## Installation & Setup
