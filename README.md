@@ -88,5 +88,6 @@ The code is modularized for readability:
 * **Network Integration:** Replacing the POC multiprocessing queues with WebSockets for actual P2P communication.
 * **Turn Counters:** Hiding sequence numbers in the header to handle out-of-order messages in asynchronous messaging environments.
 * **Error correction codes:** For fixing any decoding errors that might occur
+* **Fine-tune:** Fine-tune a model for better probability distribution and more human-like dialogue
 
 *Disclaimer: This tool is for educational purposes and researching LLM probability distributions. Use responsibly.*
