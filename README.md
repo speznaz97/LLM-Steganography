@@ -32,16 +32,16 @@ StegoChat uses **Arithmetic Coding** operated in reverse.
 
 **1. Clone the repository and install dependencies:**
 ```bash
-git clone https://github.com/blabla TODO:FILL IN LATER
-cd blabla
+git clone https://github.com/speznaz97/LLM-Steganography
+cd LLM-Steganography
 pip install llama-cpp-python numpy
 ```
 *(Note: For hardware acceleration, see the [llama-cpp-python docs](https://github.com/abetlen/llama-cpp-python) to install with CUBLAS, Metal, etc.)*
 
 **2. Download a Model:**
-Download a quantized `.gguf` model (e.g., Qwen, Mistral) from HuggingFace. Place it in the root directory. (In POC I used LFM2-8B-A1B)
+Download a quantized `.gguf` model (e.g., Qwen, Mistral) from HuggingFace. Place it in the root directory.
 
-*(Note: In testing I used this model: [LFM2-8B-A1B Q6_K](https://huggingface.co/LiquidAI/LFM2-8B-A1B-GGUF). Also tested Qwen3-4B. Smaller models might work but hyperparameter optimization would be needed)*
+*(Note: In testing I used this model: [LFM2-8B-A1B Q6_K](https://huggingface.co/LiquidAI/LFM2-8B-A1B-GGUF). Also tested Qwen3-4B and 8B. Smaller models might work but hyperparameter optimization would be needed)*
 
 Update the `MODEL_PATH` variable in `gui_app.py` or `cli_poc.py` to match your downloaded file.
 
