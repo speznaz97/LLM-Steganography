@@ -21,14 +21,10 @@ if __name__ == "__main__":
         {"role": "system",
          "content": "You are a coworker chatting on Slack. Write a natural, conversational response. Keep it to one paragraph."},
         {"role": "user",
-         "content": "Hey, did you review the Q3 report?"},
-        {"role": "assistant",
-         "content": "Yes, I looked at it this morning. The numbers look solid, but I think we need to adjust the marketing budget for next quarter."},
-        {"role": "user",
-         "content": "Agreed. I'll schedule a meeting with Sarah to discuss the changes. Are you free tomorrow at 2 PM?"}
+         "content": "Hey, did you review the Q3 report?"}
     ]
     
-    secret = "The backdoor in the production server is still active. I will extract the database at midnight."
+    secret = "A secret message that is inside of a plain text omg"
 
     cover = generate_stego(messages, secret, model, codec, cfg)
     print(f"\n  Cover: {cover}\n")
