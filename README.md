@@ -1,6 +1,6 @@
 # LLM Arithmetic Steganography
 
-**StegoChat**(name might change later) is a Python tool that hides encrypted or secret messages inside natural-sounding, AI-generated text. It allows two users to communicate covertly in plain sight over standard messaging apps (WhatsApp, Slack, Telegram).
+**StegoChat** is a Python tool that hides encrypted or secret messages inside natural-sounding, AI-generated text. It allows two users to communicate covertly in plain sight over standard messaging apps (WhatsApp, Slack, Telegram).
 
 It runs efficiently on CPUs, MacBooks, and standard GPUs, achieving a data density of **>1.2 bits per token** while processing in $O(N)$ time.
 
