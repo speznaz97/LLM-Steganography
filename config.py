@@ -2,11 +2,13 @@ from dataclasses import dataclass
 
 @dataclass
 class StegoConfig:
-    stego_temp: float = 1.4231
-    top_k: int = 104
-    prob_threshold: float = 0.0051
+    stego_temp: float = 1.0
+    #top_k: int = 104
+    #prob_threshold: float = 0.0051
     rep_penalty: float = 1.1243
     retoken_window: int = 10
+    
+    crypto_key: str = "shared_secret_password_123" #TODO: DIFFIE-HELLMAN LATER
     
     tail_max: int = 30
     tail_min: int = 1

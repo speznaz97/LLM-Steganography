@@ -9,7 +9,7 @@ from codec import LLMTextCodec
 from utils import np_softmax
 from stego import generate_stego, extract_stego
 
-MODEL_PATH = "LFM2-8B-A1B-Q6_K.gguf"
+MODEL_PATH = "LFM2.5-8B-A1B-UD-Q6_K.gguf"#"LFM2-8B-A1B-Q6_K.gguf"
 
 def compute_perplexity(model: LlamaCppModel, prompt_ids: list[int], cover_ids: list[int]) -> float:
     """
@@ -38,11 +38,10 @@ def compute_perplexity(model: LlamaCppModel, prompt_ids: list[int], cover_ids: l
 def objective(trial, model, codec):
     # Search Space
     cfg = StegoConfig(
-        stego_temp=trial.suggest_float("stego_temp", 1.0, 1.5),
-        top_k=trial.suggest_int("top_k", 40, 120),
-        prob_threshold=trial.suggest_float("prob_threshold", 0.002, 0.02, log=True),
-        rep_penalty=trial.suggest_float("rep_penalty", 1.05, 1.2),
-        retoken_window=trial.suggest_int("retoken_window", 4, 10),
+        # stego_temp (1.0), top_k, and prob_threshold are REMOVED to preserve the true distribution.
+        rep_penalty=trial.suggest_float("rep_penalty", 1.0, 1.2),
+        retoken_window=trial.suggest_int("retoken_window", 4, 12),
+        crypto_key="shared_secret_password_123", # Must match what is used in stego.py
         max_gen_tokens=400 # Per-message limit
     )
 

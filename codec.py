@@ -14,6 +14,10 @@ class LLMTextCodec:
         self.total       = self.ac.TOTAL
         self.eos_id      = model.eos_id
         self.bos_id      = model.bos_id
+
+        self.primer_text = "The following is a standard English message:\n"
+        self.primer_ids = self.model.tokenize(self.primer_text, add_bos=True, special=True)
+
         print(f"  [Codec] vocab={model.n_vocab}  bos={self.bos_id}  eos={self.eos_id}  T={temperature}")
 
     def _logits_to_cdf(self, logits: np.ndarray) -> np.ndarray:
@@ -24,7 +28,8 @@ class LLMTextCodec:
         symbols = tokens + [self.eos_id]
 
         self.model.reset()
-        self.model.eval([self.bos_id])
+        # NEW: Feed the primer instead of just BOS
+        self.model.eval(self.primer_ids)
         t0   = time.time()
         cdfs = [self._logits_to_cdf(self.model.get_logits())]
 
@@ -41,7 +46,8 @@ class LLMTextCodec:
         bits     = unpack_bits(wire[4:], num_bits)
 
         self.model.reset()
-        self.model.eval([self.bos_id])
+        # NEW: Feed the primer instead of just BOS
+        self.model.eval(self.primer_ids)
         first_cdf = self._logits_to_cdf(self.model.get_logits())
 
         def cdf_fn(ctx):

@@ -39,8 +39,15 @@ class LlamaCppModel:
         if raw:
             try:
                 import jinja2
+                import re  # <--- Added import
+                
                 env = jinja2.Environment(autoescape=False)
                 env.globals["raise_exception"] = lambda m: (_ for _ in ()).throw(Exception(m))
+                
+                # <--- Fix starts here: Strip out the unknown Hugging Face tags --->
+                raw = re.sub(r'\{%-?\s*generation\s*-?%\}', '', raw)
+                raw = re.sub(r'\{%-?\s*endgeneration\s*-?%\}', '', raw)
+                
                 self._jinja_tpl = env.from_string(raw)
             except ImportError:
                 print("  ⚠ jinja2 not installed → ChatML fallback")

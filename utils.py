@@ -1,4 +1,5 @@
 import numpy as np
+import hashlib
 
 def np_softmax(logits: np.ndarray, temperature: float = 1.0) -> np.ndarray:
     x = np.float64(logits) / temperature
@@ -21,3 +22,19 @@ def unpack_bits(data: bytes, num_bits: int) -> list[int]:
     return np.unpackbits(
         np.frombuffer(data, dtype=np.uint8)
     )[:num_bits].tolist()
+
+
+def stream_cipher(bits: list[int], key: str) -> list[int]:
+    """Lightweight CTR stream cipher to guarantee uniformly random payload bits."""
+    out_bits = []
+    counter = 0
+    while len(out_bits) < len(bits):
+        # Generate a deterministic pseudo-random block
+        block = hashlib.sha256(f"{key}_{counter}".encode('utf-8')).digest()
+        for byte in block:
+            for i in range(8):
+                out_bits.append((byte >> (7 - i)) & 1)
+        counter += 1
+    
+    # XOR the payload with the keystream
+    return [b ^ k for b, k in zip(bits, out_bits[:len(bits)])]

@@ -21,9 +21,9 @@ def run_chat_client(name, send_queue, recv_queue):
     
     # Apply the optimized Pareto configuration
     cfg = StegoConfig(
-        stego_temp=1.4231,
-        top_k=104,
-        prob_threshold=0.0051,
+        #stego_temp=1.4231,
+        #top_k=104,
+        #prob_threshold=0.0051,
         rep_penalty=1.1243,
         retoken_window=10,
         tail_max=30,  
