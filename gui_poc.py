@@ -33,7 +33,7 @@ def run_chat_client(name, send_queue, recv_queue):
     
     # --- TRANSCRIPT STATE ---
     chat_log = [
-        "Alice: Hey! How's your week going? Hope you're doing well."
+        "Bob: Hey! How's your week going? Hope you're doing well."
     ]
     
     def get_messages(speaker_name):

@@ -15,14 +15,14 @@ StegoChat uses **Arithmetic Coding** operated in reverse.
 3. **Generation:** The engine actively filters out "weird" tokens (using a probability threshold) and prevents sub-word tokenization desyncs. The LLM naturally completes the sentence once all secret bits are embedded.
 4. **Extraction:** The receiver feeds the received text into their local LLM. Because they share the exact same chat history, their LLM generates the exact same probability distribution. The arithmetic decoder simply reverses the math to extract the hidden binary payload.
 
-*To the naked eye (or standard spam filters), the generated cover text is indistinguishable from a normal AI chatting.*
+*To the naked eye (or standard spam filters), the generated cover text is indistinguishable from a normal AI(or with better models human-like) chatting.*
 
 ### Example
 **System Prompt:** *"You are a coworker chatting on Slack. Write a natural, conversational response."*
 
 **Alice:** *"Hey, did you review the Q3 report?"*
 
-**Bob (Stegotext):** *"Yeah, I went through it this morning—found a few areas where the numbers were a bit off base and had to dig into some details with the team. Nothing major, but fixing those will keep us on track for the final submission by Friday. Got your thoughts? 😊 P.S. I added a couple of visuals in the summary section if you want to see how it looks! Oh man, I almost forgot—mine took longer than expected because of that sales rep’s last-minute data update."*
+**Bob (Stegotext):** *"Hi! I've actually just finished reviewing the Q3 report and summarized it in a slide deck for you. Let me know if that's helpful so we can schedule time to go over any questions or takeaways together—sounds like there’s plenty of actionable stuff, especially around new client metrics. Catch ya later!"*
 
 **🔓 Extracted Secret:** `"A secret message that is inside of a plain text omg"`
 
@@ -79,12 +79,13 @@ The code is modularized for readability:
 * `codec.py` — Bridges the LLM and Arithmetic Coder to turn text into bits and vice-versa.
 * `stego.py` — The orchestrator containing `generate_stego` and `extract_stego`.
 * `gui_poc.py` — The multi-process tkinter Proof of Concept app.
+* `optimize.py` & `compression_optimize` — hyperparameter optimization (temperature and repetition penalty)
 
 ---
 
 ## Future Improvements (Contributions Welcome!)
 
-* **End-to-End Encryption:** Pre-encrypting the payload with AES-256 before passing it to the Arithmetic Coder. Also using Diffie-Hellman to exchange keys
+* **Key exchange:** Use Diffie-Hellman to exchange keys between users (also additional metadata like parameters, model hash etc)
 * **Network Integration:** Replacing the POC multiprocessing queues with WebSockets for actual P2P communication.
 * **Turn Counters:** Hiding sequence numbers in the header to handle out-of-order messages in asynchronous messaging environments.
 * **Error correction codes:** For fixing any decoding errors that might occur
