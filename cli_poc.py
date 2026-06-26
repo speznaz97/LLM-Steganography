@@ -3,7 +3,8 @@ from llm import LlamaCppModel
 from codec import LLMTextCodec
 from stego import generate_stego, extract_stego
 
-MODEL_PATH = "LFM2-8B-A1B-Q6_K.gguf"
+MODEL_PATH = "LFM2.5-8B-A1B-UD-Q6_K.gguf"#"LFM2-8B-A1B-Q6_K.gguf"
+CODEC_MODEL_PATH = "LFM2.5-230M-Q8_0.gguf"
 
 if __name__ == "__main__":
     cfg = StegoConfig()
@@ -12,6 +13,12 @@ if __name__ == "__main__":
     model = LlamaCppModel(
         MODEL_PATH,
         n_ctx=8192,
+        #n_gpu_layers=-1,       # full GPU offload
+        n_gpu_layers=0,      # CPU-only
+    )
+    codec_model = LlamaCppModel(
+        CODEC_MODEL_PATH,
+        n_ctx=2048,
         #n_gpu_layers=-1,       # full GPU offload
         n_gpu_layers=0,      # CPU-only
     )

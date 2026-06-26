@@ -89,7 +89,7 @@ def generate_stego(messages: list[dict], secret: str, model: LlamaCppModel,
     raw_bits = unpack_bits(wire[4:], num_bits)
     
     # 1. Encrypt bits to ensure they are mathematically uniform
-    crypto_key = getattr(cfg, 'crypto_key', 'shared_secret_password_123')
+    crypto_key = getattr(cfg, 'crypto_key')
     enc_bits = stream_cipher(raw_bits, crypto_key)
     
     header    =[int(b) for b in format(len(enc_bits) ^ cfg.header_xor, f'0{cfg.header_bits}b')]

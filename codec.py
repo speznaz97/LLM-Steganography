@@ -7,7 +7,7 @@ from arithmetic import ArithmeticCoder
 from utils import np_softmax, pack_bits, unpack_bits
 
 class LLMTextCodec:
-    def __init__(self, model: LlamaCppModel, temperature: float = 1.0):
+    def __init__(self, model: LlamaCppModel, temperature: float = 1.0, primer_text : str = "Message:\n"):
         self.model       = model
         self.temperature = temperature
         self.ac          = ArithmeticCoder()
@@ -15,7 +15,7 @@ class LLMTextCodec:
         self.eos_id      = model.eos_id
         self.bos_id      = model.bos_id
 
-        self.primer_text = "The following is a standard English message:\n"
+        self.primer_text = primer_text
         self.primer_ids = self.model.tokenize(self.primer_text, add_bos=True, special=True)
 
         print(f"  [Codec] vocab={model.n_vocab}  bos={self.bos_id}  eos={self.eos_id}  T={temperature}")
