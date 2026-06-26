@@ -22,7 +22,7 @@ if __name__ == "__main__":
         #n_gpu_layers=-1,       # full GPU offload
         n_gpu_layers=0,      # CPU-only
     )
-    codec = LLMTextCodec(model, temperature=1.0)
+    codec = LLMTextCodec(model, temperature=1.32)
 
     messages =[
         {"role": "system",

@@ -145,20 +145,28 @@ def generate_stego(messages: list[dict], secret: str, model: LlamaCppModel,
 
     tail = 0
     for ts in range(cfg.tail_max):
-        # 2. Prevent the model from babbling: if it naturally wants to output <eos>, let it stop!
+        # Evaluate the model's natural top choice
         probs_natural = np_softmax(lg, 1.0)
-        if int(np.argmax(probs_natural)) in model.special_ids:
-            break
-            
+        natural_top = int(np.argmax(probs_natural))
+        
+        # Check if the text currently ends with punctuation
+        chk_current = model.detokenize(cur[-3:]).rstrip()
+        ends_with_punctuation = bool(chk_current and chk_current[-1] in cfg.sentence_enders)
+        
+        # Only allow a natural stop if the sentence is complete AND we have generated enough tail
+        if natural_top in model.special_ids:
+            if ends_with_punctuation and ts >= cfg.tail_min: # Changed 'or' to 'and'
+                break
+                
         _rep_penalty(lg, cur, plen, cfg.rep_penalty)
         vp = _safe_probs(lg, cur, plen, prompt, model, cfg, temp_override=1.0)
         bt = max(vp, key=vp.get)
         if bt in model.special_ids: break
-
+        
         cur.append(bt); tail += 1
         model.eval([bt])
         lg = model.get_logits()
-
+        
         if ts >= cfg.tail_min:
             chk = model.detokenize(cur[-3:]).rstrip()
             if chk and chk[-1] in cfg.sentence_enders: break

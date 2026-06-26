@@ -10,35 +10,69 @@ from llm import LlamaCppModel
 from codec import LLMTextCodec
 from stego import generate_stego, extract_stego
 
-MODEL_PATH = "LFM2-8B-A1B-Q6_K.gguf"
+MODEL_PATH = "Qwen3.5-4B-Q6_K.gguf"#"LFM2-8B-A1B-Q6_K.gguf"
+CODEC_MODEL_PATH = "LFM2.5-230M-Q8_0.gguf"
 
 def run_chat_client(name, send_queue, recv_queue):
-    """
-    Runs an entirely isolated instance of the chat client.
-    Has its own memory space, its own LLM instance, and its own context history.
-    """
     print(f"[{name}] Booting up isolated environment...")
     
-    # Apply the optimized Pareto configuration
+    my_name = name
+    their_name = "Bob" if name == "Alice" else "Alice"
+    
     cfg = StegoConfig(
-        #stego_temp=1.4231,
-        #top_k=104,
-        #prob_threshold=0.0051,
-        rep_penalty=1.1243,
-        retoken_window=10,
-        tail_max=30,  
+        rep_penalty=1.05,      
+        retoken_window=6,     
+        tail_max=60,  
         tail_min=1,
     )
 
-    # Load LLM into this process's memory
+    # Load LLMs
     model = LlamaCppModel(MODEL_PATH, n_ctx=8192, n_gpu_layers=0)
-    codec = LLMTextCodec(model, temperature=1.0)
+    codec_model = LlamaCppModel(CODEC_MODEL_PATH, n_ctx=2048, n_gpu_layers=0)
+    codec = LLMTextCodec(codec_model, temperature=1.32)
     
-    # Shared deterministic starting context. Both clients MUST start identically.
-    # We append all sent/received messages as "user" so the LLM always answers as "assistant"
-    messages =[
-        {"role": "system", "content": "You are a close friend chatting on a messenger. Write natural, conversational responses. Keep it to one paragraph."}
+    # --- TRANSCRIPT STATE ---
+    chat_log = [
+        "Alice: Hey! How's your week going? Hope you're doing well."
     ]
+    
+    def get_messages(speaker_name):
+        """
+        Builds a perfectly alternating User/Assistant chat history 
+        where the last message is ALWAYS 'user' and the generating 
+        speaker is ALWAYS 'assistant'.
+        """
+        other_name = "Bob" if speaker_name == "Alice" else "Alice"
+        
+        # Explicitly enforce the persona and forbid the "AI Assistant" signature
+        system_prompt = (
+            f"You are {speaker_name}, chatting with your close friend {other_name} on a messenger. "
+            f"Write a natural, warm, and highly detailed response as {speaker_name}. "
+            f"Share plenty of details about your week, your thoughts, and ask open-ended questions. "
+            #f"Do not include any formal sign-offs, and absolutely never refer to yourself as an AI or Assistant."
+        )
+        formatted = [{"role": "system", "content": system_prompt}]
+        
+        # Build roles backwards so the most recent message is always 'user'
+        roles = []
+        is_user = True
+        for _ in range(len(chat_log)):
+            roles.append("user" if is_user else "assistant")
+            is_user = not is_user
+        
+        roles.reverse()  # Restore forward chronological order
+        
+        for msg, role in zip(chat_log, roles):
+            # Strip the sender prefix so the LLM doesn't see duplicate labels
+            clean_content = msg
+            if msg.startswith("Alice: "):
+                clean_content = msg[7:]
+            elif msg.startswith("Bob: "):
+                clean_content = msg[5:]
+                
+            formatted.append({"role": role, "content": clean_content})
+            
+        return formatted
     
     # --- GUI Setup ---
     root = tk.Tk()
@@ -54,12 +88,9 @@ def run_chat_client(name, send_queue, recv_queue):
     )
     chat_display.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
 
-    # Tags for coloring UI text
     chat_display.tag_config("you", foreground="#4caf50", font=("Helvetica", 11, "bold"))
     chat_display.tag_config("them", foreground="#2196f3", font=("Helvetica", 11, "bold"))
-    # The actual cover message text
     chat_display.tag_config("cover", foreground="#e0e0e0") 
-    # The extracted secret payload
     chat_display.tag_config("secret", foreground="#ff5252", font=("Courier", 10, "italic"))
     chat_display.tag_config("system", foreground="#ffeb3b", font=("Helvetica", 10, "italic"))
 
@@ -97,19 +128,19 @@ def run_chat_client(name, send_queue, recv_queue):
         def worker():
             root.after(0, lambda: set_status("Generating Cover..."))
             try:
-                # 1. Generate Cover
-                cover = generate_stego(messages, sec, model, codec, cfg)
+                # 1. Grab dynamically formatted messages for ME and Generate
+                msgs = get_messages(my_name)
+                cover = generate_stego(msgs, sec, model, codec, cfg)
                 
-                # 2. Update local context history
-                messages.append({"role": "user", "content": cover})
+                # 2. Append the generated text to our raw log
+                chat_log.append(f"{my_name}: {cover}")
                 
-                # 3. Show in UI
+                # 3. Update UI & Send
                 root.after(0, lambda: log_msg("You", cover, secret=sec))
-                
-                # 4. SEND OVER "WIRE" (Simulated network. Only cover text is sent!)
                 send_queue.put(cover)
             except Exception as e:
-                root.after(0, lambda: log_msg("System", f"Generation error: {e}", is_system=True))
+                err_msg = f"Generation error: {e}"
+                root.after(0, lambda msg=err_msg: log_msg("System", msg, is_system=True))
             finally:
                 root.after(0, lambda: set_status("Idle"))
                 
@@ -128,25 +159,27 @@ def run_chat_client(name, send_queue, recv_queue):
             def decode_worker():
                 root.after(0, lambda: set_status("Extracting Secret..."))
                 try:
-                    # 1. Extract secret using context BEFORE the cover is appended
-                    recovered = extract_stego(messages, cover, model, codec, cfg)
+                    # 1. Decode using THEIR perspective so the roles match their generation math
+                    msgs = get_messages(their_name)
+                    recovered = extract_stego(msgs, cover, model, codec, cfg)
                     root.after(0, lambda: log_msg("System", f"Extracted: {recovered}", is_system=True))
+                    
+                    # 2. Append their cover to our raw log
+                    chat_log.append(f"{their_name}: {cover}")
+                    
                 except Exception as e:
-                    root.after(0, lambda: log_msg("System", f"Extraction failed: {e}", is_system=True))
-                
-                # 2. Append cover to local context so we stay synced for the next turn!
-                messages.append({"role": "user", "content": cover})
-                root.after(0, lambda: set_status("Idle"))
+                    err_msg = f"Extraction failed: {e}"
+                    root.after(0, lambda msg=err_msg: log_msg("System", msg, is_system=True))
+                finally:
+                    root.after(0, lambda: set_status("Idle"))
 
             threading.Thread(target=decode_worker, daemon=True).start()
                 
-        # Check network queue every 200ms
         root.after(200, check_queue)
 
     log_msg("System", "Chat started. Context synchronized. Ready.", is_system=True)
     root.after(200, check_queue)
     root.mainloop()
-
 
 if __name__ == "__main__":
     # Required for Windows multiprocessing compatibility
