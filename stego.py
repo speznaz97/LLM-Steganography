@@ -7,19 +7,7 @@ from config import StegoConfig
 from llm import LlamaCppModel
 from codec import LLMTextCodec
 from arithmetic import ArithmeticCoder
-from utils import np_softmax, pack_bits, unpack_bits
-
-def stream_cipher(bits: list[int], key: str) -> list[int]:
-    """Lightweight CTR stream cipher to guarantee uniformly random payload bits."""
-    out_bits = []
-    counter = 0
-    while len(out_bits) < len(bits):
-        block = hashlib.sha256(f"{key}_{counter}".encode('utf-8')).digest()
-        for byte in block:
-            for i in range(8):
-                out_bits.append((byte >> (7 - i)) & 1)
-        counter += 1
-    return [b ^ k for b, k in zip(bits, out_bits[:len(bits)])]
+from utils import np_softmax, pack_bits, unpack_bits, stream_cipher
 
 def _rep_penalty(logits: np.ndarray, ids: list[int], plen: int, penalty: float):
     seen = list(set(ids[plen:]))
@@ -34,9 +22,12 @@ def _safe_probs(logits: np.ndarray, cur_ids: list[int], plen: int, prompt: str,
     probs = np_softmax(logits, temp)
     order = np.argsort(-probs)
     
-    # Simulate EXACTLY what the receiver will see when they concatenate prompt + cover
     cover_so_far = model.detokenize(cur_ids[plen:], skip_special=True)
     full_text = prompt + cover_so_far
+    
+    # Fast BPE desync check using suffix: isolates the right-most boundary
+    suffix_text = full_text[-64:] if len(full_text) > 64 else full_text
+    prefix_ids = model.tokenize(suffix_text, add_bos=False, special=True)
     
     valid: dict[int, float] = {}
     
@@ -50,11 +41,9 @@ def _safe_probs(logits: np.ndarray, cur_ids: list[int], plen: int, prompt: str,
         ts = model.detokenize([iv])
         if any(c in ts for c in cfg.banned_chars): continue
         
-        # 100% Bulletproof BPE Desync check:
-        # Tokenize the complete text with the new candidate token appended.
-        # It MUST exactly equal our current token sequence, otherwise the receiver will desync!
-        test_r_ids = model.tokenize(full_text + ts, add_bos=False, special=True)
-        if test_r_ids == cur_ids + [iv]:
+        # Test just the boundary; extremely fast O(1) check
+        test_r_ids = model.tokenize(suffix_text + ts, add_bos=False, special=True)
+        if test_r_ids == prefix_ids + [iv]:
             valid[iv] = pv
             
     # Fallback to prevent crashes if the entire top probability mass is BPE-unsafe
@@ -63,8 +52,8 @@ def _safe_probs(logits: np.ndarray, cur_ids: list[int], plen: int, prompt: str,
             iv = int(idx)
             if iv in model.special_ids: continue
             ts = model.detokenize([iv])
-            test_r_ids = model.tokenize(full_text + ts, add_bos=False, special=True)
-            if test_r_ids == cur_ids + [iv]:
+            test_r_ids = model.tokenize(suffix_text + ts, add_bos=False, special=True)
+            if test_r_ids == prefix_ids + [iv]:
                 valid[iv] = float(probs[idx])
                 break
         if not valid:
@@ -76,8 +65,9 @@ def get_stego_cdf(logits: np.ndarray, model: LlamaCppModel, cur_ids: list[int],
                   plen: int, prompt: str, total: int, cfg: StegoConfig):
     _rep_penalty(logits, cur_ids, plen, cfg.rep_penalty)
     vp = _safe_probs(logits, cur_ids, plen, prompt, model, cfg)
-    tokens = sorted(vp, key=lambda t: (-vp[t], t))
-    probs = np.array([vp[t] for t in tokens], np.float64)
+    rounded_vp = {t: round(p, 5) for t, p in vp.items()}
+    tokens = sorted(rounded_vp, key=lambda t: (-rounded_vp[t], t))
+    probs = np.array([rounded_vp[t] for t in tokens], np.float64)
     cdf = ArithmeticCoder.build_cdf(probs, total)
     return tokens, cdf
 

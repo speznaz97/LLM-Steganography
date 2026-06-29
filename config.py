@@ -6,7 +6,7 @@ class StegoConfig:
     #top_k: int = 104
     #prob_threshold: float = 0.0051
     rep_penalty: float = 1.1243
-    retoken_window: int = 10
+    #retoken_window: int = 10
     
     crypto_key: str = "shared_secret_password_123" #TODO: DIFFIE-HELLMAN LATER
     

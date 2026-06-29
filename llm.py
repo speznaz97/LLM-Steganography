@@ -3,12 +3,14 @@ from llama_cpp import Llama, llama_get_logits_ith
 
 class LlamaCppModel:
     def __init__(self, model_path: str, n_ctx: int = 8192, n_gpu_layers: int = -1, **kwargs):
+        flash_attention = (n_gpu_layers == -1)
         self.llm = Llama(
             model_path=model_path,
             n_ctx=n_ctx,
             n_gpu_layers=n_gpu_layers,
             logits_all=False,
             verbose=False,
+            flash_attn=flash_attention,
             **kwargs,
         )
         self._n_vocab = self.llm.n_vocab()
@@ -40,7 +42,6 @@ class LlamaCppModel:
             try:
                 import jinja2
                 import re  # <--- Added import
-                
                 env = jinja2.Environment(autoescape=False)
                 env.globals["raise_exception"] = lambda m: (_ for _ in ()).throw(Exception(m))
                 
