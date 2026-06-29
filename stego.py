@@ -9,6 +9,8 @@ from codec import LLMTextCodec
 from arithmetic import ArithmeticCoder
 from utils import np_softmax, pack_bits, unpack_bits, stream_cipher
 
+from syncpool import SyncPool
+
 def _rep_penalty(logits: np.ndarray, ids: list[int], plen: int, penalty: float):
     seen = list(set(ids[plen:]))
     if not seen: return
@@ -92,6 +94,16 @@ def generate_stego(messages: list[dict], secret: str, model: LlamaCppModel,
     cur    = p_ids.copy()
 
     model.reset()
+
+    sp = SyncPool(
+        model,
+        key=cfg.crypto_key,                       # share the SAME key both sides
+        temperature=getattr(cfg, "stego_temp", 1.0),
+        top_k=getattr(cfg, "syncpool_topk", 256),
+        prob_floor=getattr(cfg, "syncpool_floor", 1e-5),
+        banned_bytes=tuple(cfg.banned_chars),
+    )
+
     model.eval(p_ids)
     lg = model.get_logits()
 
@@ -117,9 +129,14 @@ def generate_stego(messages: list[dict], secret: str, model: LlamaCppModel,
         if step % 10 == 0:
             print(f"\r  [Gen] {min(enc_bits_count, len(full_bits))}/{len(full_bits)} bits  {step} tok", end="", flush=True)
 
-        tokens, cdf = get_stego_cdf(lg, model, cur, plen, prompt, total, cfg)
+        _rep_penalty(lg, cur, plen, cfg.rep_penalty)        # keep iff also kept in extract
+        pstep   = sp.step(lg, cur)
+        cdf     = ArithmeticCoder.build_cdf(pstep.masses, total)
         sym_idx = ac.find_symbol(dec_lo, dec_hi, val, cdf, total)
-        chosen  = tokens[sym_idx]
+        chosen  = pstep.reps[sym_idx]
+        #tokens, cdf = get_stego_cdf(lg, model, cur, plen, prompt, total, cfg)
+        #sym_idx = ac.find_symbol(dec_lo, dec_hi, val, cdf, total)
+        #chosen  = tokens[sym_idx]
 
         dec_lo, dec_hi = ac.narrow(dec_lo, dec_hi, cdf, sym_idx, total)
         dec_lo, dec_hi, val = ac.renorm_dec(dec_lo, dec_hi, val, rb)
@@ -167,32 +184,34 @@ def generate_stego(messages: list[dict], secret: str, model: LlamaCppModel,
 def extract_stego(messages: list[dict], cover: str, model: LlamaCppModel, 
                   codec: LLMTextCodec, cfg: StegoConfig) -> str:
     prompt = model.apply_chat_template(messages, add_generation_prompt=True, enable_thinking=False)
-    full   = prompt + cover
-    r_ids  = model.tokenize(full, add_bos=False, special=True)
     p_ids  = model.tokenize(prompt, add_bos=False, special=True)
     plen   = len(p_ids)
     cur    = p_ids.copy()
+    cover_bytes = cover.encode("utf-8")          # sender emitted these exact bytes
 
-    model.reset()
-    model.eval(p_ids)
+    model.reset(); model.eval(p_ids)
     lg = model.get_logits()
-
     ac, total = codec.ac, codec.total
+    sp = SyncPool(model, key=cfg.crypto_key,
+                temperature=getattr(cfg, "stego_temp", 1.0),
+                top_k=getattr(cfg, "syncpool_topk", 256),
+                prob_floor=getattr(cfg, "syncpool_floor", 1e-5),
+                banned_bytes=tuple(cfg.banned_chars))
+
     lo, hi, pending = 0, ac.FULL, 0
-    extracted, target_len =[], None
+    extracted, target_len = [], None
+    pos = 0
 
-    for i in range(plen, len(r_ids)):
-        if (i - plen) % 10 == 0:
-            print(f"\r  [Ext] {i - plen}/{len(r_ids) - plen} tok  {len(extracted)} bits", end="", flush=True)
+    while pos < len(cover_bytes):
+        _rep_penalty(lg, cur, plen, cfg.rep_penalty)     # match generate exactly
+        pstep = sp.step(lg, cur)
+        cdf   = ArithmeticCoder.build_cdf(pstep.masses, total)
 
-        tokens, cdf = get_stego_cdf(lg, model, cur, plen, prompt, total, cfg)
-        actual = r_ids[i] if r_ids[i] in tokens else tokens[0]
-        
-        # 3. Explicitly warn if a desync happens so it doesn't fail silently
-        if r_ids[i] not in tokens:
-            print(f"\n  [!] Desync warning: token '{model.detokenize([r_ids[i]])}' ({r_ids[i]}) not in valid set!")
-
-        sym_idx = tokens.index(actual)
+        m = SyncPool.match(pstep, cover_bytes, pos)
+        if m is None:
+            print(f"\n  [!] desync: no pool matches cover at byte {pos}")
+            break
+        sym_idx, rep_id, nbytes = m
 
         lo, hi = ac.narrow(lo, hi, cdf, sym_idx, total)
         while True:
@@ -203,26 +222,26 @@ def extract_stego(messages: list[dict], cover: str, model: LlamaCppModel,
                 lo -= ac.HALF; hi -= ac.HALF
             elif lo >= ac.QTR and hi < 3 * ac.QTR:
                 pending += 1; lo -= ac.QTR; hi -= ac.QTR
-            else: break
+            else:
+                break
             lo <<= 1; hi = (hi << 1) | 1
 
         if target_len is None and len(extracted) >= cfg.header_bits:
             raw = int(''.join(map(str, extracted[:cfg.header_bits])), 2)
             target_len = raw ^ cfg.header_xor
-
         if target_len is not None and len(extracted) >= cfg.header_bits + target_len:
             extracted = extracted[:cfg.header_bits + target_len]
             break
 
-        cur.append(r_ids[i])
-        model.eval([r_ids[i]])
+        pos += nbytes
+        cur.append(rep_id)
+        model.eval([rep_id])
         lg = model.get_logits()
-
     print()
     payload = extracted[cfg.header_bits:]
     
     # 4. Decrypt bits before passing them to the decoder
-    crypto_key = getattr(cfg, 'crypto_key', 'shared_secret_password_123')
+    crypto_key = getattr(cfg, 'crypto_key')
     dec_bits = stream_cipher(payload, crypto_key)
     
     wire    = struct.pack('>I', len(dec_bits)) + pack_bits(dec_bits)
