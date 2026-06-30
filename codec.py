@@ -56,4 +56,5 @@ class LLMTextCodec:
             return self._logits_to_cdf(self.model.get_logits())
 
         ids = self.ac.decode(bits, num_bits, cdf_fn, self.total, eos_id=self.eos_id, max_len=2048)
-        return self.model.detokenize(ids, skip_special=True)
+        ids = [t for t in ids if t != self.eos_id]      # the only structural token in the stream
+        return self.model.detokenize(ids, skip_special=False)
