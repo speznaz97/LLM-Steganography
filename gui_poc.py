@@ -9,9 +9,10 @@ from config import StegoConfig
 from llm import LlamaCppModel
 from codec import LLMTextCodec
 from stego import generate_stego, extract_stego
+from integrity import session_fingerprint, require_match
 
 MODEL_PATH = "Qwen3.5-4B-Q6_K.gguf"#"LFM2-8B-A1B-Q6_K.gguf"
-CODEC_MODEL_PATH = "LFM2.5-230M-Q8_0.gguf"
+CODEC_MODEL_PATH = "Qwen3.5-0.8B-Q8_0.gguf"
 
 def run_chat_client(name, send_queue, recv_queue):
     print(f"[{name}] Booting up isolated environment...")
@@ -20,17 +21,20 @@ def run_chat_client(name, send_queue, recv_queue):
     their_name = "Bob" if name == "Alice" else "Alice"
     
     cfg = StegoConfig(
-        rep_penalty=1.05,      
-        retoken_window=6,     
-        tail_max=60,  
-        tail_min=1,
+        stego_temp=1.38,
+        syncpool_topk=35
     )
 
     # Load LLMs
     model = LlamaCppModel(MODEL_PATH, n_ctx=8192, n_gpu_layers=0)
     codec_model = LlamaCppModel(CODEC_MODEL_PATH, n_ctx=2048, n_gpu_layers=0)
-    codec = LLMTextCodec(codec_model, temperature=1.32)
+    codec = LLMTextCodec(codec_model, temperature=1.12)
     
+    my_fp = session_fingerprint(model, codec, cfg)
+    send_queue.put(("__handshake__", my_fp))
+    tag, peer_fp = recv_queue.get()                # blocks until peer sends theirs
+    assert tag == "__handshake__"
+    require_match(my_fp, peer_fp)                  # raises -> refuses to run on mismatch
     # --- TRANSCRIPT STATE ---
     chat_log = [
         "Bob: Hey! How's your week going? Hope you're doing well."
