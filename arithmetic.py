@@ -16,14 +16,6 @@ class ArithmeticCoder:
             p = np.ones(n, np.float64); s = float(n)
         p /= s
         
-        # Round the standardized probability mass to 5 decimal places
-        p = np.round(p, 5)
-        s_rounded = p.sum()
-        if s_rounded <= 0:
-            p = np.ones(n, np.float64)
-            s_rounded = float(n)
-        p /= s_rounded
-        
         avail  = total - n
         scaled = p * avail
         floors = np.floor(scaled).astype(np.int64)
