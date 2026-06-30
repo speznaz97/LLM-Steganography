@@ -12,6 +12,31 @@ from syncpool import SyncPool
 from discop import Discop
 from integrity import crc_bits, check_crc, CRC_BITS
 
+def _make_tail_bit_generator(key, seed_context: list[int]):
+    """Generates cryptographically secure, high-entropy pseudo-random bits
+    seeded deterministically by the key and the context at the start of the tail."""
+    # Ensure key is in bytes format
+    key_bytes = key.encode("utf-8") if isinstance(key, str) else key
+    
+    step = 0
+    byte_buf = b""
+    bit_idx = 8
+    ctx_bytes = np.asarray(seed_context, np.int64).tobytes()
+    
+    def read_bit():
+        nonlocal byte_buf, bit_idx, step
+        if bit_idx >= 8:
+            # Generate deterministic pseudo-random bytes using key_bytes
+            h = hashlib.sha256(key_bytes + b"|tail|" + ctx_bytes + step.to_bytes(8, "big")).digest()
+            byte_buf = h
+            bit_idx = 0
+            step += 1
+        b = (byte_buf[bit_idx // 8] >> (bit_idx % 8)) & 1
+        bit_idx += 1
+        return b
+        
+    return read_bit
+
 def generate_stego(messages: list[dict], secret: str, model: LlamaCppModel, 
                    codec: LLMTextCodec, cfg: StegoConfig) -> str:
     print(f"  Secret: '{secret}'")
@@ -68,23 +93,37 @@ def generate_stego(messages: list[dict], secret: str, model: LlamaCppModel,
         model.eval([chosen])
         lg = model.get_logits()
 
-    tail = 0
-    for ts in range(getattr(cfg, "tail_max", 20)):
-        recent = model.detokenize(cur[-6:]).rstrip()
-        last = recent[-1] if recent else ""
-        if last in getattr(cfg, "sentence_enders", ['.', '!', '?']):
-            break
-        if tail >= 3 and recent and not any(c.isalnum() for c in recent):
-            break
-        probs = np_softmax(lg, 1.0)
-        order = np.argsort(-probs)
-        nt = next((int(i) for i in order if int(i) not in model.special_ids), None)
-        if nt is None:
-            break
-        cur.append(nt); tail += 1
-        model.eval([nt]); lg = model.get_logits()
+    tail_bit_reader = _make_tail_bit_generator(cfg.crypto_key, cur)
+    
+    tail_step = 0
+    tail_min = getattr(cfg, "tail_min", 3)
+    tail_max = getattr(cfg, "tail_max", 30)
+    sentence_enders = getattr(cfg, "sentence_enders", ['.', '!', '?', '\n'])
 
-    print(f"\n  Done: {step} tok ({(len(raw_bits) / max(step, 1)):.2f} b/t) + {tail} tail")
+    while tail_step < tail_max:
+        # Check termination condition only after generating minimum required tail tokens
+        if tail_step >= tail_min:
+            recent = model.detokenize(cur[-6:]).rstrip()
+            last = recent[-1] if recent else ""
+            if last in sentence_enders:
+                break
+            if recent and not any(c.isalnum() for c in recent):
+                break
+
+        # Step SyncPool and Discop using the exact same parameters as the payload
+        pstep = sp.step(lg, cur)
+        cdf   = dc.build_cdf(pstep.masses)
+        
+        # Embed secure pseudo-random bits to preserve distribution
+        sym_idx, nb = dc.embed(cdf, cur, tail_bit_reader)
+        chosen = pstep.reps[sym_idx]
+        
+        cur.append(chosen)
+        tail_step += 1
+        model.eval([chosen])
+        lg = model.get_logits()
+
+    print(f"\n  Done: {step} tok ({(len(raw_bits) / max(step, 1)):.2f} b/t) + {tail_step} tail tokens")
     return model.detokenize(cur[plen:], skip_special=True)
 
 def extract_stego(messages: list[dict], cover: str, model: LlamaCppModel, 
