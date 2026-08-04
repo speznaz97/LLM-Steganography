@@ -17,10 +17,13 @@ class LLMTextCodec:
 
         self.primer_text = primer_text
         self.primer_ids = self.model.tokenize(self.primer_text, add_bos=True, special=True)
+        self.masked_special_ids = [tid for tid in model.special_ids if tid != self.eos_id]
 
         print(f"  [Codec] vocab={model.n_vocab}  bos={self.bos_id}  eos={self.eos_id}  T={temperature}")
 
     def _logits_to_cdf(self, logits: np.ndarray) -> np.ndarray:
+        if self.masked_special_ids:
+            logits[self.masked_special_ids] = -1e9
         return self.ac.build_cdf(np_softmax(logits, self.temperature), self.total)
 
     def encode(self, text: str):
