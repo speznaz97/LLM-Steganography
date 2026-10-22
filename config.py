@@ -16,9 +16,16 @@ class StegoConfig:
 
     crypto_key: str = "shared_secret_password_123"   # TODO: Diffie-Hellman exchange
 
+    # ---- per-message nonce: random, embedded in the clear as the first cover
+    #      bits; keys the payload keystream so no two messages share it ----
+    nonce_bits: int = 32
+    gen_attempts: int = 3            # fresh-nonce retries if the cover fails the
+                                     # sender-side round-trip check
+
     # ---- tail: completes the sentence after the payload (carries no bits) ----
     tail_max: int = 30
-    tail_min: int = 1                # unused by the current tail loop; harmless
+    tail_min: int = 0                # tail tokens forced before the stop check;
+                                     # 0 = no tail if the payload ends a sentence
     sentence_enders: frozenset = frozenset('.!?»)…')
 
     # ---- surface bytes kept out of the candidate pool (applied both sides) ----

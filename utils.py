@@ -24,13 +24,17 @@ def unpack_bits(data: bytes, num_bits: int) -> list[int]:
     )[:num_bits].tolist()
 
 
-def stream_cipher(bits: list[int], key: str) -> list[int]:
-    """Lightweight CTR stream cipher to guarantee uniformly random payload bits."""
+def stream_cipher(bits: list[int], key: str, nonce: bytes) -> list[int]:
+    """Lightweight CTR stream cipher to guarantee uniformly random payload bits.
+    The nonce must be unique per message, or two payloads XOR to plaintext XOR."""
+    key_bytes = key.encode("utf-8") if isinstance(key, str) else key
     out_bits = []
     counter = 0
     while len(out_bits) < len(bits):
-        # Generate a deterministic pseudo-random block
-        block = hashlib.sha256(f"{key}_{counter}".encode('utf-8')).digest()
+        # Generate a deterministic pseudo-random block (fixed-width fields, so
+        # no (nonce, counter) pair can alias another)
+        block = hashlib.sha256(key_bytes + b"|ctr|" + nonce
+                               + counter.to_bytes(8, "big")).digest()
         for byte in block:
             for i in range(8):
                 out_bits.append((byte >> (7 - i)) & 1)
