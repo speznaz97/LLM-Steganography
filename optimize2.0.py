@@ -31,9 +31,11 @@ TOPK_CAP  = 256          # top-k is only a safety cap now; min-p does the cuttin
 # message (cfg.max_messages). In the last message end-of-turn is disallowed, so
 # a capped cover can't stop where the model wants to -- the run-on text this
 # whole scheme tries to avoid. Infeasible trials are kept off the Pareto front.
-MAX_CAP_RATE = 0.10
+# 0.30: the terse Slack case caps on nearly every run (2 of 8 = 25%) whatever
+# the config, so a tighter limit leaves no feasible trial at all
+MAX_CAP_RATE = 0.30
 
-STUDY_NAME = "stego_minp_v1"
+STUDY_NAME = "stego_minp_v2"
 DB_NAME    = "stego_study.db"
 
 # Fixed configs scored with --baseline, for comparison with the tuned front
@@ -166,13 +168,15 @@ def evaluate(params: dict, model, codec, label: str = "") -> dict:
 
 def objective(trial, model, codec):
     params = {
-        "stego_temp":    trial.suggest_float("stego_temp", 0.9, 2.2, step=0.02),
-        "syncpool_minp": trial.suggest_float("syncpool_minp", 0.005, 0.3, log=True),
+        "stego_temp":    trial.suggest_float("stego_temp", 1.1, 2.2, step=0.02),
+        "syncpool_minp": trial.suggest_float("syncpool_minp", 0.001, 0.03, log=True),
         "syncpool_topk": TOPK_CAP,
     }
     try:
         s = evaluate(params, model, codec, label=f"Trial {trial.number}")
     except Exception as e:
+        # kept on the trial so the dashboard shows WHY it was pruned
+        trial.set_user_attr("fail", f"{type(e).__name__}: {e}"[:500])
         raise optuna.TrialPruned(str(e))
 
     for k in ("tokens", "tail", "msgs", "capped", "emoji", "retries", "secs"):
