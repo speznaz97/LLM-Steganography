@@ -77,7 +77,7 @@ The code is modularized for readability:
 * `utils.py` — Standalone Numpy replacements for torch and bit-packing operations.
 * `llm.py` — The lightweight wrapper around `llama-cpp-python`.
 * `codec.py` — Bridges the LLM and Arithmetic Coder to turn text into bits and vice-versa.
-* `stego.py` — The orchestrator containing `generate_stego` and `extract_stego`.
+* `stego.py` — The orchestrator containing `generate_stego` and `extract_stego`. The model may end its turn before the whole payload is embedded, so `generate_stego` returns a **list** of consecutive assistant cover messages and `extract_stego` takes that same list (passing a single string still works for the common one-message case).
 * `gui_poc.py` — The multi-process tkinter Proof of Concept app.
 * `optimize.py` & `compression_optimize` — hyperparameter optimization (temperature and repetition penalty)
 

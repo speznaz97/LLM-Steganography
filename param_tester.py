@@ -329,7 +329,8 @@ class StegoInteractiveApp:
         try:
             # 1. Embed & Generate
             self._log_status("Processing Stego Generation (SyncPool + Discop)...")
-            cover = generate_stego(messages, secret, self.model, self.codec, cfg)
+            covers = generate_stego(messages, secret, self.model, self.codec, cfg)
+            cover = " ".join(covers)    # combined cover text for metrics below
             t_gen = time.time() - t_start
 
             # 2. Extract & Validate
@@ -341,7 +342,7 @@ class StegoInteractiveApp:
             raw_bits, _ = self.codec.encode_bits(secret)
             payload_bits = len(raw_bits)
             
-            recovered = extract_stego(messages, cover, self.model, self.codec, cfg)
+            recovered = extract_stego(messages, covers, self.model, self.codec, cfg)
             t_ext = time.time() - t_ext_start
 
             cover_ids = self.model.tokenize(cover, add_bos=False, special=False)

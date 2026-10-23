@@ -52,14 +52,15 @@ def objective(trial, model, codec):
     for case in EVAL_SUITE:
         try:
             # 1. Generate (Uses the cached/optimized codec)
-            cover = generate_stego(case["messages"], case["secret"], model, codec, cfg)
-            
+            covers = generate_stego(case["messages"], case["secret"], model, codec, cfg)
+
             # 2. Extract & Verify
-            recovered = extract_stego(case["messages"], cover, model, codec, cfg)
+            recovered = extract_stego(case["messages"], covers, model, codec, cfg)
             if recovered.strip() != case["secret"].strip():
                 raise optuna.TrialPruned(f"Extraction failed on: {case['name']}")
 
-            # 3. Measure Readability (Perplexity)
+            # 3. Measure Readability (Perplexity) over the combined cover text
+            cover = " ".join(covers)
             prompt = model.apply_chat_template(case["messages"], add_generation_prompt=True)
             prompt_ids = model.tokenize(prompt, add_bos=False, special=True)
             cover_ids = model.tokenize(cover, add_bos=False, special=False)

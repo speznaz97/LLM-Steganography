@@ -57,8 +57,9 @@ def objective(trial, model, codec):
 
     for case in EVAL_SUITE:
         try:
-            cover     = generate_stego(case["messages"], case["secret"], model, codec, cfg)
-            recovered = extract_stego(case["messages"], cover, model, codec, cfg)
+            covers    = generate_stego(case["messages"], case["secret"], model, codec, cfg)
+            recovered = extract_stego(case["messages"], covers, model, codec, cfg)
+            cover     = " ".join(covers)    # combined text for bpt / perplexity
             if recovered.strip() != case["secret"].strip():
                 # a config that cannot round-trip is invalid, not just bad
                 #raise optuna.TrialPruned(f"extraction failed: {case['name']}")

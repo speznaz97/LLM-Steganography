@@ -134,14 +134,17 @@ def run_chat_client(name, send_queue, recv_queue):
             try:
                 # 1. Grab dynamically formatted messages for ME and Generate
                 msgs = get_messages(my_name)
-                cover = generate_stego(msgs, sec, model, codec, cfg)
-                
+                covers = generate_stego(msgs, sec, model, codec, cfg)
+                # generate_stego may split the payload across consecutive
+                # assistant messages; here we treat them as one bubble
+                cover = " ".join(covers)
+
                 # 2. Append the generated text to our raw log
                 chat_log.append(f"{my_name}: {cover}")
-                
-                # 3. Update UI & Send
+
+                # 3. Update UI & Send the list so the receiver can decode it
                 root.after(0, lambda: log_msg("You", cover, secret=sec))
-                send_queue.put(cover)
+                send_queue.put(covers)
             except Exception as e:
                 err_msg = f"Generation error: {e}"
                 root.after(0, lambda msg=err_msg: log_msg("System", msg, is_system=True))
@@ -156,18 +159,21 @@ def run_chat_client(name, send_queue, recv_queue):
     # --- Receiver Loop ---
     def check_queue():
         while not recv_queue.empty():
-            # RECEIVED OVER "WIRE". We only receive the plain cover text.
-            cover = recv_queue.get() 
+            # RECEIVED OVER "WIRE". We receive the list of cover messages.
+            covers = recv_queue.get()
+            if isinstance(covers, str):
+                covers = [covers]
+            cover = " ".join(covers)
             log_msg("Them", cover) # Log the cover immediately
-            
+
             def decode_worker():
                 root.after(0, lambda: set_status("Extracting Secret..."))
                 try:
                     # 1. Decode using THEIR perspective so the roles match their generation math
                     msgs = get_messages(their_name)
-                    recovered = extract_stego(msgs, cover, model, codec, cfg)
+                    recovered = extract_stego(msgs, covers, model, codec, cfg)
                     root.after(0, lambda: log_msg("System", f"Extracted: {recovered}", is_system=True))
-                    
+
                     # 2. Append their cover to our raw log
                     chat_log.append(f"{their_name}: {cover}")
                     

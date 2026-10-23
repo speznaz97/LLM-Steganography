@@ -9,8 +9,8 @@ CODEC_MODEL_PATH = "Qwen3.5-0.8B-Q8_0.gguf"
 
 if __name__ == "__main__":
     cfg = StegoConfig(
-        stego_temp=1.22,
-        syncpool_topk=47
+        stego_temp=1.38,
+        syncpool_topk=35
     )
 
     print(f"Loading {MODEL_PATH} …")
@@ -26,7 +26,7 @@ if __name__ == "__main__":
         #n_gpu_layers=-1,       # full GPU offload
         n_gpu_layers=0,      # CPU-only
     )
-    codec = LLMTextCodec(model, temperature=1.06)
+    codec = LLMTextCodec(codec_model, temperature=1.12)
 
     messages =[
         {"role": "system",
@@ -42,10 +42,13 @@ if __name__ == "__main__":
     require_match(fp, fp)
     print(f"Handshake passed: {fp}")
     
-    cover = generate_stego(messages, secret, model, codec, cfg)
-    print(f"\n  Cover: {cover}\n")
+    covers = generate_stego(messages, secret, model, codec, cfg)
+    for i, c in enumerate(covers, 1):
+        label = f"Cover [{i}/{len(covers)}]" if len(covers) > 1 else "Cover"
+        print(f"\n  {label}: {c}")
+    print()
 
-    recovered = extract_stego(messages, cover, model, codec, cfg)
+    recovered = extract_stego(messages, covers, model, codec, cfg)
     ok = recovered.strip() == secret.strip()
     print(f"\n  Sent:      '{secret}'")
     print(f"  Recovered: '{recovered}'")

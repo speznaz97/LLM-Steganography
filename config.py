@@ -16,13 +16,20 @@ class StegoConfig:
 
     crypto_key: str = "shared_secret_password_123"   # TODO: Diffie-Hellman exchange
 
-    # ---- per-message nonce: random, embedded in the clear as the first cover
-    #      bits; keys the payload keystream so no two messages share it ----
-    nonce_bits: int = 32
-    gen_attempts: int = 3            # fresh-nonce retries if the cover fails the
-                                     # sender-side round-trip check
+    # ---- per-message nonce: derived from the conversation (both sides already
+    #      hold it, and it differs per message) + a small attempt counter,
+    #      embedded masked as the first cover bits; keys the payload keystream ----
+    attempt_bits: int = 3            # counter width; caps retries at 2**attempt_bits
+    gen_attempts: int = 3            # retries (new counter -> new nonce/cover) if
+                                     # the cover fails the sender-side round-trip check
 
-    # ---- tail: completes the sentence after the payload (carries no bits) ----
+    # ---- end-of-turn: the model may stop mid-payload; the rest continues in a
+    #      follow-up assistant message (both sides must agree on the cap) ----
+    max_messages: int = 3            # cover split into at most this many messages;
+                                     # end-of-turn is disallowed in the last one
+
+    # ---- tail: completes the sentence after the payload (carries no bits);
+    #      ends early if the model picks end-of-turn ----
     tail_max: int = 30
     tail_min: int = 0                # tail tokens forced before the stop check;
                                      # 0 = no tail if the payload ends a sentence

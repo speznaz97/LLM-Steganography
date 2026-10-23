@@ -76,12 +76,14 @@ class PoolStep:
     rep_bytes: list[bytes]    # representative surface bytes, same order
     masses: np.ndarray        # pool probability mass, same order (sums to ~1)
     members: list[list[int]]  # member token ids per pool (inspection / debug)
+    end_idx: int = -1         # index of the end-of-turn pool, or -1 if absent
 
 
 class SyncPool:
     def __init__(self, model, key: str, temperature: float = 1.0,
                  top_k: int = 256, prob_floor: float = 1e-5,
-                 banned_bytes: tuple[bytes, ...] = ()):
+                 banned_bytes: tuple[bytes, ...] = (),
+                 end_ids: tuple[int, ...] = ()):
         self.model = model
         self.key = key.encode("utf-8") if isinstance(key, str) else key
         self.temperature = temperature
@@ -90,6 +92,10 @@ class SyncPool:
         self.banned = tuple(
             b.encode("utf-8") if isinstance(b, str) else b for b in banned_bytes
         )
+        # end-of-turn tokens (<|im_end|> / eos): candidates only when the caller
+        # allows it; all of them form ONE pool with empty surface bytes, since
+        # the receiver only sees "the message ended", never which token did it
+        self.end_ids = frozenset(end_ids)
         self._byte_cache: dict[int, bytes] = {}
 
     # --- token -> fixed surface bytes (byte-level BPE) ----------------------
@@ -155,7 +161,8 @@ class SyncPool:
         return list(groups.values())
 
     # --- main per-step computation -----------------------------------------
-    def step(self, logits: np.ndarray, ctx_ids: list[int]) -> PoolStep:
+    def step(self, logits: np.ndarray, ctx_ids: list[int],
+             allow_end: bool = False) -> PoolStep:
         probs = np_softmax(logits, self.temperature)
 
         # reproducible truncation: top-k by probability, then a floor
@@ -167,7 +174,13 @@ class SyncPool:
         ids: list[int] = []
         strs: list[bytes] = []
         ps: list[float] = []
+        end_ids: list[int] = []
+        end_ps: list[float] = []
         for iv in cand.tolist():
+            if allow_end and iv in self.end_ids:
+                end_ids.append(iv)
+                end_ps.append(float(probs[iv]))
+                continue
             if iv in specials:
                 continue
             b = self._token_bytes(iv)
@@ -180,7 +193,7 @@ class SyncPool:
             ps.append(float(probs[iv]))
 
         # fallback: never emit nothing (mirrors the original safeguard)
-        if not ids:
+        if not ids and not end_ids:
             top = int(np.argmax(probs))
             return PoolStep([top], [self._token_bytes(top)],
                             np.array([1.0]), [[top]])
@@ -199,6 +212,14 @@ class SyncPool:
             rep_bytes.append(self._token_bytes(rep))
             masses.append(float(m_ps.sum()))
             members.append(m_ids)
+        if end_ids:
+            # kept out of _group: b"" is a prefix of everything and would
+            # swallow every other pool
+            e_ps = np.array(end_ps, np.float64)
+            reps.append(self._representative(end_ids, e_ps, ctx_ids))
+            rep_bytes.append(b"")
+            masses.append(float(e_ps.sum()))
+            members.append(end_ids)
 
         # deterministic, identical ordering on both sides
         idx = sorted(range(len(reps)), key=lambda i: (rep_bytes[i], reps[i]))
@@ -207,7 +228,8 @@ class SyncPool:
         masses_arr = np.array([masses[i] for i in idx], np.float64)
         members = [members[i] for i in idx]
         masses_arr /= masses_arr.sum()
-        return PoolStep(reps, rep_bytes, masses_arr, members)
+        end_idx = rep_bytes.index(b"") if end_ids else -1   # sorts first
+        return PoolStep(reps, rep_bytes, masses_arr, members, end_idx)
 
     # --- receiver: surface bytes -> pool index -----------------------------
     @staticmethod
