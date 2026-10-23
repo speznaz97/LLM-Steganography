@@ -10,7 +10,7 @@ from config import StegoConfig
 from llm import LlamaCppModel
 from codec import LLMTextCodec
 from utils import np_softmax
-from stego import generate_stego, extract_stego
+from stego import generate_oneshot, extract_oneshot, PayloadTooLong
 
 # Adjust to your local files.
 MODEL_PATH       = "Qwen3.5-4B-Q6_K.gguf"
@@ -27,13 +27,12 @@ N_TRIALS  = 30
 # Averages over those instead of scoring one lucky/unlucky sample per case.
 REPEATS   = 2
 TOPK_CAP  = 256          # top-k is only a safety cap now; min-p does the cutting
-# Feasibility constraint: max fraction of runs whose cover used every allowed
-# message (cfg.max_messages). In the last message end-of-turn is disallowed, so
-# a capped cover can't stop where the model wants to -- the run-on text this
-# whole scheme tries to avoid. Infeasible trials are kept off the Pareto front.
-# 0.30: the terse Slack case caps on nearly every run (2 of 8 = 25%) whatever
-# the config, so a tighter limit leaves no feasible trial at all
-MAX_CAP_RATE = 0.30
+# Feasibility constraint: min fraction of runs whose secret fits in ONE message
+# (mode A). A secret too long for one message raises PayloadTooLong -- it is not
+# a failure, just a secret that needs a conversation (mode B). We reward configs
+# whose capacity fits most of the suite one-shot. Infeasible trials are kept off
+# the Pareto front.
+MIN_FIT_RATE = 0.70
 
 STUDY_NAME = "stego_minp_v2"
 DB_NAME    = "stego_study.db"
@@ -84,10 +83,10 @@ def compute_perplexity(model: LlamaCppModel, ids: list[int],
                        spans: list[tuple[int, int]]) -> tuple[float, int]:
     """Perplexity of the tokens actually sent, under the base LLM at T=1.
 
-    `ids` is the exact sequence generate_stego produced (prompt, messages and
-    the seams between them) and `spans` the slice of each message. SyncPool's
-    tokens are not the canonical split of the cover text, so re-tokenizing the
-    text would score a different sequence. Lower = more natural.
+    `ids` is the exact sequence the embed pass produced (prompt + the one cover
+    message) and `spans` the slice of the cover. SyncPool's tokens are not the
+    canonical split of the cover text, so re-tokenizing the text would score a
+    different sequence. Lower = more natural.
 
     Note: because Discop preserves the distribution, the cover is a faithful
     sample of the model at `stego_temp` (after truncation), so this measures
@@ -118,9 +117,12 @@ def emoji_rate(text: str) -> float:
 
 
 def evaluate(params: dict, model, codec, label: str = "") -> dict:
-    """Run the whole suite REPEATS times under one config. Raises on any
-    round-trip failure: a config that cannot round-trip is invalid, not just bad."""
-    rows = []
+    """Run the whole suite REPEATS times under one config. A secret too long for
+    one message (PayloadTooLong) is recorded as a non-fit, not an error. Raises
+    on any round-trip failure: a config that cannot round-trip is invalid."""
+    rows = []          # one per fitting run (carries metrics)
+    n_runs = 0
+    n_fit = 0
     for r in range(REPEATS):
         cfg = StegoConfig(
             stego_temp     = params["stego_temp"],
@@ -130,37 +132,42 @@ def evaluate(params: dict, model, codec, label: str = "") -> dict:
             max_gen_tokens = 512,
         )
         for case in EVAL_SUITE:
+            n_runs += 1
             t0 = time.time()
             stats = {}
-            covers    = generate_stego(case["messages"], case["secret"], model, codec, cfg, stats=stats)
-            recovered = extract_stego(case["messages"], covers, model, codec, cfg)
+            try:
+                cover = generate_oneshot(case["messages"], case["secret"], model, codec, cfg, stats=stats)
+            except PayloadTooLong:
+                # legitimate: this secret needs a conversation (mode B), not a bug
+                continue
+            recovered = extract_oneshot(case["messages"], cover, model, codec, cfg)
             if recovered.strip() != case["secret"].strip():
                 print(f"\n  MISMATCH on {case['name']} (repeat {r}):")
                 print(f"    sent:      {case['secret']!r}")
                 print(f"    recovered: {recovered!r}")
                 raise RuntimeError(f"extraction failed: {case['name']}")
 
+            n_fit += 1
             ppl, n_tok = compute_perplexity(model, stats["ids"], stats["spans"])
-            text = " ".join(covers)
             rows.append({
                 "case": case["name"], "repeat": r,
                 # bits of the secret per cover token sent, tail included (it's honest overhead)
                 "bpt": stats["body_bits"] / max(1, n_tok),
                 "ppl": ppl, "tokens": n_tok,
-                "tail": stats["tail_tokens"], "msgs": len(covers),
-                "emoji": emoji_rate(text), "retries": stats["attempt"] - 1,
-                "capped": float(stats["capped"]),
-                "secs": time.time() - t0, "covers": covers,
+                "tail": stats["tail_tokens"],
+                "emoji": emoji_rate(cover), "retries": stats["attempt"] - 1,
+                "secs": time.time() - t0, "cover": cover,
             })
 
-    n = len(rows)
+    n = max(1, len(rows))
     summary = {k: sum(row[k] for row in rows) / n
-               for k in ("bpt", "ppl", "tokens", "tail", "msgs", "capped", "emoji", "retries", "secs")}
+               for k in ("bpt", "ppl", "tokens", "tail", "emoji", "retries", "secs")}
+    summary["fit_rate"] = n_fit / max(1, n_runs)
     summary["rows"] = rows
 
     print(f"\n[{label}] bits/tok={summary['bpt']:.3f}  ppl={summary['ppl']:.2f}  "
-          f"tok={summary['tokens']:.0f}  msgs={summary['msgs']:.2f}  "
-          f"capped={summary['capped'] * 100:.0f}%  emoji={summary['emoji'] * 100:.1f}%  "
+          f"tok={summary['tokens']:.0f}  fit={summary['fit_rate'] * 100:.0f}%  "
+          f"emoji={summary['emoji'] * 100:.1f}%  "
           f"(T={params['stego_temp']:.2f}  topk={params.get('syncpool_topk', TOPK_CAP)}  "
           f"minp={params.get('syncpool_minp', 0.0):.3f})")
     return summary
@@ -179,12 +186,16 @@ def objective(trial, model, codec):
         trial.set_user_attr("fail", f"{type(e).__name__}: {e}"[:500])
         raise optuna.TrialPruned(str(e))
 
-    for k in ("tokens", "tail", "msgs", "capped", "emoji", "retries", "secs"):
+    if not s["rows"]:
+        trial.set_user_attr("fail", "no secret fit in one message at these settings")
+        raise optuna.TrialPruned("fit_rate=0")
+
+    for k in ("tokens", "tail", "fit_rate", "emoji", "retries", "secs"):
         trial.set_user_attr(k, s[k])
     # <= 0 is feasible; infeasible trials are kept off study.best_trials
-    trial.set_constraint("cap_rate", s["capped"] - MAX_CAP_RATE)
+    trial.set_constraint("fit_rate", MIN_FIT_RATE - s["fit_rate"])
     # one sample cover per case, for eyeballing naturalness in the dashboard
-    trial.set_user_attr("samples", {row["case"]: row["covers"]
+    trial.set_user_attr("samples", {row["case"]: row["cover"]
                                     for row in s["rows"] if row["repeat"] == 0})
     return (s["bpt"], s["ppl"]) if MULTI_OBJECTIVE else s["bpt"]
 
@@ -217,10 +228,10 @@ def run_baselines(model, codec):
     for p, s in results:
         print(f"  T={p['stego_temp']:.2f} topk={p['syncpool_topk']} minp={p['syncpool_minp']:.3f}  |  "
               f"bits/tok={s['bpt']:.3f}  ppl={s['ppl']:.2f}  tok={s['tokens']:.0f}  "
-              f"msgs={s['msgs']:.2f}  capped={s['capped'] * 100:.0f}%  emoji={s['emoji'] * 100:.1f}%")
+              f"fit={s['fit_rate'] * 100:.0f}%  emoji={s['emoji'] * 100:.1f}%")
         for row in s["rows"]:
             if row["repeat"] == 0:
-                print(f"      {row['case']}: {row['covers']}")
+                print(f"      {row['case']}: {row['cover']!r}")
 
 
 def run_study(model, codec, n_trials):
@@ -241,14 +252,14 @@ def run_study(model, codec, n_trials):
     print("=" * 60)
 
     if MULTI_OBJECTIVE:
-        print(f"\nPareto-optimal configs with cap-hit rate <= {MAX_CAP_RATE * 100:.0f}% "
+        print(f"\nPareto-optimal configs with one-message fit rate >= {MIN_FIT_RATE * 100:.0f}% "
               "(bits/token higher is better, ppl lower is better):")
         front = sorted(study.best_trials, key=lambda t: t.values[0], reverse=True)
         for t in front:
             bpt, ppl = t.values
             p, u = t.params, t.user_attrs
             print(f"  bits/tok={bpt:5.3f}  ppl={ppl:6.2f}  tok={u.get('tokens', 0):5.1f}  "
-                  f"msgs={u.get('msgs', 0):.2f}  capped={u.get('capped', 0) * 100:3.0f}%  "
+                  f"fit={u.get('fit_rate', 0) * 100:3.0f}%  "
                   f"emoji={u.get('emoji', 0) * 100:4.1f}%  |  "
                   f"stego_temp={p['stego_temp']:.2f}  syncpool_minp={p['syncpool_minp']:.3f}")
         print("\nPick the knee of this front: the point past which more "
@@ -264,8 +275,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Tune stego_temp / syncpool_minp with Optuna.")
     ap.add_argument("--trials", type=int, default=N_TRIALS)
     ap.add_argument("--repeats", type=int, default=REPEATS)
-    ap.add_argument("--max-cap-rate", type=float, default=MAX_CAP_RATE,
-                    help="max fraction of runs allowed to hit the message cap")
+    ap.add_argument("--min-fit-rate", type=float, default=MIN_FIT_RATE,
+                    help="min fraction of runs whose secret must fit in one message")
     ap.add_argument("--baseline", action="store_true",
                     help="score the fixed BASELINES configs first (old top-k settings)")
     ap.add_argument("--baseline-only", action="store_true")
@@ -274,7 +285,7 @@ if __name__ == "__main__":
     ap.add_argument("--gpu-layers", type=int, default=0, help="-1 = full GPU offload")
     args = ap.parse_args()
     REPEATS = args.repeats
-    MAX_CAP_RATE = args.max_cap_rate
+    MIN_FIT_RATE = args.min_fit_rate
 
     model, codec = load_models(args.model, args.codec_model, args.gpu_layers)
     if args.baseline or args.baseline_only:

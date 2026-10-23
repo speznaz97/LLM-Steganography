@@ -25,10 +25,9 @@ class StegoConfig:
     gen_attempts: int = 3            # retries (new counter -> new nonce/cover) if
                                      # the cover fails the sender-side round-trip check
 
-    # ---- end-of-turn: the model may stop mid-payload; the rest continues in a
-    #      follow-up assistant message (both sides must agree on the cap) ----
-    max_messages: int = 3            # cover split into at most this many messages;
-                                     # end-of-turn is disallowed in the last one
+    # ---- end-of-turn: one turn produces exactly one message, always ending
+    #      where the model chooses. A secret too long for a single message is
+    #      carried across real turns by StegoSender / StegoReceiver instead. ----
 
     # ---- tail: completes the sentence after the payload (carries no bits);
     #      ends early if the model picks end-of-turn ----
@@ -42,9 +41,5 @@ class StegoConfig:
         '\n', '\r', '\t', '*', '#', '_', '[', ']',
         '<', '>', '|', '  ', '(', ')', '---'
     )
-
-    # ---- payload length header ----
-    header_bits: int = 16
-    header_xor: int = 0x5555
 
     max_gen_tokens: int = 512

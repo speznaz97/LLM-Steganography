@@ -23,7 +23,7 @@ Nonce = SHA-256 over the canonical JSON of `messages` plus a 3-bit attempt count
 
 - Caveat: sending twice in an identical context with the same counter reuses the keystream.
 
-## 2. ~~Let the message end where the model wants it to end~~ (done)
+## 2. ~~Let the message end where the model wants it to end~~ (done; Step B superseded — see item 6)
 
 Both steps implemented. End-of-turn (`<|im_end|>` / `eos`) is now a real candidate.
 
@@ -36,6 +36,19 @@ Both steps implemented. End-of-turn (`<|im_end|>` / `eos`) is now a real candida
 - Wire format bumped: `eot=split-v1|max_messages=N` added to `session_fingerprint`.
 - Skipped the optional length-hint idea, as noted.
 - Verified with the 0.8B model (cover+codec): 8/8 round trips OK across 4 conversations × 2 secrets; the short secret split into 2 messages on 2/4 convs, the longer one into 2–3 messages on all 4 (`end_in_payload` == `n_msgs − 1` every time). Truncated cover lists are rejected by the CRC. Step A tails observed ending on `im_end`.
+
+## 6. ~~Drop multi-message-per-turn; one cover per real turn~~ (done)
+
+Step B above split a secret across several *consecutive* assistant messages in a single turn. That split is unnatural at its root: the model emits end-of-turn exactly when it considers the reply finished, so the follow-up message is generated from a state where it has nothing left to say, and it restates, answers an imagined user reply, or drifts. The bad coherence is a property of the split, not of the join (see `MULTI_MESSAGE_PLAN.md`).
+
+One assistant turn now produces exactly **one** cover message, always ending where the model chooses. Two entry points share one embed/extract core (`_embed_turn` / `_extract_turn`):
+
+- **Mode A — `generate_oneshot` / `extract_oneshot`.** The whole secret rides in one message. If the model ends its turn with bits still due the attempt is retried with a new counter; if none fits, `PayloadTooLong` is raised (capacity — `stego_temp`, `syncpool_minp` — is what makes a short secret fit a single natural message).
+- **Mode B — `StegoSender` / `StegoReceiver`.** One secret spread across however many *real* back-and-forth turns it takes, one cover per turn, each a genuine reply to the other party's latest message, so coherence is automatic. Zero length header: the keystream is continuous (fixed on the first turn, keyed by that turn's context + a retried attempt counter), and the receiver verifies the CRC after each turn, reporting `done` when it passes.
+
+Removed: `_followup_ids` / the template seam, `_end_allowed`'s message-cap arm, `cfg.max_messages`, the unused `header_bits` / `header_xor`, the `capped` stat and its benchmark constraint, and the list-of-covers return. Wire fingerprint bumped (`eot=split-v1|max_messages=N` → `eot=single-v1|chunk=crc-per-turn-v1`) — a breaking format change, as intended. Benchmark (`optimize2.0.py`): `capped` / `msgs` and the cap-rate constraint replaced by a one-message **fit rate** (fraction of the suite that fits mode A; `PayloadTooLong` counts as a non-fit, not a failure) with a `--min-fit-rate` feasibility constraint.
+
+Limitation: in mode B the keystream is fixed once the first cover is committed, so a *later* turn's cover cannot re-roll its counter — if it fails the sender-side round-trip check the transmission aborts (rare; the banned-char set prevents most boundary issues). And if the other party stops replying mid-secret the transmission simply stalls — acceptable for a real chat.
 
 ## 3. Use min-p instead of top-k
 

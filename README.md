@@ -77,7 +77,7 @@ The code is modularized for readability:
 * `utils.py` — Standalone Numpy replacements for torch and bit-packing operations.
 * `llm.py` — The lightweight wrapper around `llama-cpp-python`.
 * `codec.py` — Bridges the LLM and Arithmetic Coder to turn text into bits and vice-versa.
-* `stego.py` — The orchestrator containing `generate_stego` and `extract_stego`. The model may end its turn before the whole payload is embedded, so `generate_stego` returns a **list** of consecutive assistant cover messages and `extract_stego` takes that same list (passing a single string still works for the common one-message case).
+* `stego.py` — The orchestrator. One assistant turn always produces exactly **one** cover message, ending where the model chooses. Two entry points share the same embed/extract core: `generate_oneshot` / `extract_oneshot` carry a whole secret in a single message (raising `PayloadTooLong` if it doesn't fit), and the stateful `StegoSender` / `StegoReceiver` spread one secret across however many **real** back-and-forth turns it takes (one cover per turn; the receiver verifies the CRC after each turn and reports `done`).
 * `gui_poc.py` — The multi-process tkinter Proof of Concept app.
 * `optimize.py` & `compression_optimize` — hyperparameter optimization (temperature and repetition penalty)
 

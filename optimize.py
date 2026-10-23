@@ -8,7 +8,7 @@ from config import StegoConfig
 from llm import LlamaCppModel
 from codec import LLMTextCodec
 from utils import np_softmax
-from stego import generate_stego, extract_stego
+from stego import generate_oneshot, extract_oneshot
 
 MODEL_PATH = "LFM2.5-8B-A1B-UD-Q6_K.gguf"
 CODEC_MODEL_PATH = "LFM2.5-230M-Q8_0.gguf"
@@ -52,15 +52,14 @@ def objective(trial, model, codec):
     for case in EVAL_SUITE:
         try:
             # 1. Generate (Uses the cached/optimized codec)
-            covers = generate_stego(case["messages"], case["secret"], model, codec, cfg)
+            cover = generate_oneshot(case["messages"], case["secret"], model, codec, cfg)
 
             # 2. Extract & Verify
-            recovered = extract_stego(case["messages"], covers, model, codec, cfg)
+            recovered = extract_oneshot(case["messages"], cover, model, codec, cfg)
             if recovered.strip() != case["secret"].strip():
                 raise optuna.TrialPruned(f"Extraction failed on: {case['name']}")
 
-            # 3. Measure Readability (Perplexity) over the combined cover text
-            cover = " ".join(covers)
+            # 3. Measure Readability (Perplexity) over the cover text
             prompt = model.apply_chat_template(case["messages"], add_generation_prompt=True)
             prompt_ids = model.tokenize(prompt, add_bos=False, special=True)
             cover_ids = model.tokenize(cover, add_bos=False, special=False)

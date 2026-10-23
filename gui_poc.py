@@ -8,7 +8,7 @@ import time
 from config import StegoConfig
 from llm import LlamaCppModel
 from codec import LLMTextCodec
-from stego import generate_stego, extract_stego
+from stego import generate_oneshot, extract_oneshot, PayloadTooLong
 from integrity import session_fingerprint, require_match
 
 MODEL_PATH = "Qwen3.5-4B-Q6_K.gguf"#"LFM2-8B-A1B-Q6_K.gguf"
@@ -132,19 +132,22 @@ def run_chat_client(name, send_queue, recv_queue):
         def worker():
             root.after(0, lambda: set_status("Generating Cover..."))
             try:
-                # 1. Grab dynamically formatted messages for ME and Generate
+                # 1. Grab dynamically formatted messages for ME and Generate.
+                #    One chat message carries the whole secret (mode A); a
+                #    secret too long for one reply raises PayloadTooLong.
                 msgs = get_messages(my_name)
-                covers = generate_stego(msgs, sec, model, codec, cfg)
-                # generate_stego may split the payload across consecutive
-                # assistant messages; here we treat them as one bubble
-                cover = " ".join(covers)
+                cover = generate_oneshot(msgs, sec, model, codec, cfg)
 
                 # 2. Append the generated text to our raw log
                 chat_log.append(f"{my_name}: {cover}")
 
-                # 3. Update UI & Send the list so the receiver can decode it
+                # 3. Update UI & Send the cover so the receiver can decode it
                 root.after(0, lambda: log_msg("You", cover, secret=sec))
-                send_queue.put(covers)
+                send_queue.put(cover)
+            except PayloadTooLong as e:
+                err_msg = (f"Secret too long for one message at these settings: {e}. "
+                           f"Shorten it or raise stego_temp.")
+                root.after(0, lambda msg=err_msg: log_msg("System", msg, is_system=True))
             except Exception as e:
                 err_msg = f"Generation error: {e}"
                 root.after(0, lambda msg=err_msg: log_msg("System", msg, is_system=True))
@@ -159,11 +162,10 @@ def run_chat_client(name, send_queue, recv_queue):
     # --- Receiver Loop ---
     def check_queue():
         while not recv_queue.empty():
-            # RECEIVED OVER "WIRE". We receive the list of cover messages.
-            covers = recv_queue.get()
-            if isinstance(covers, str):
-                covers = [covers]
-            cover = " ".join(covers)
+            # RECEIVED OVER "WIRE". We receive one cover message.
+            cover = recv_queue.get()
+            if isinstance(cover, list):            # tolerate an old-style list
+                cover = " ".join(cover)
             log_msg("Them", cover) # Log the cover immediately
 
             def decode_worker():
@@ -171,7 +173,7 @@ def run_chat_client(name, send_queue, recv_queue):
                 try:
                     # 1. Decode using THEIR perspective so the roles match their generation math
                     msgs = get_messages(their_name)
-                    recovered = extract_stego(msgs, covers, model, codec, cfg)
+                    recovered = extract_oneshot(msgs, cover, model, codec, cfg)
                     root.after(0, lambda: log_msg("System", f"Extracted: {recovered}", is_system=True))
 
                     # 2. Append their cover to our raw log

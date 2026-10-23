@@ -118,7 +118,7 @@ def session_fingerprint(model, codec, cfg) -> str:
     Exchange it before the first message and compare via require_match()."""
     wire_params = (
         f"crc={CRC_BITS}|nonce=ctx-v1|attempt={getattr(cfg, 'attempt_bits', 3)}|precision=32|"
-        f"eot=split-v1|max_messages={getattr(cfg, 'max_messages', 3)}|"
+        f"eot=single-v1|chunk=crc-per-turn-v1|"
         f"stego_temp={getattr(cfg, 'stego_temp', 1.0)}|"
         f"topk={getattr(cfg, 'syncpool_topk', 256)}|"
         f"floor={getattr(cfg, 'syncpool_floor', 1e-5)}|"

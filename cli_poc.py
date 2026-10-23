@@ -1,7 +1,7 @@
 from config import StegoConfig
 from llm import LlamaCppModel
 from codec import LLMTextCodec
-from stego import generate_stego, extract_stego
+from stego import generate_oneshot, extract_oneshot
 from integrity import session_fingerprint, require_match
 
 MODEL_PATH = "Qwen3.5-4B-Q6_K.gguf"#"LFM2-8B-A1B-Q6_K.gguf"
@@ -42,13 +42,11 @@ if __name__ == "__main__":
     require_match(fp, fp)
     print(f"Handshake passed: {fp}")
     
-    covers = generate_stego(messages, secret, model, codec, cfg)
-    for i, c in enumerate(covers, 1):
-        label = f"Cover [{i}/{len(covers)}]" if len(covers) > 1 else "Cover"
-        print(f"\n  {label}: {c}")
+    cover = generate_oneshot(messages, secret, model, codec, cfg)
+    print(f"\n  Cover: {cover}")
     print()
 
-    recovered = extract_stego(messages, covers, model, codec, cfg)
+    recovered = extract_oneshot(messages, cover, model, codec, cfg)
     ok = recovered.strip() == secret.strip()
     print(f"\n  Sent:      '{secret}'")
     print(f"  Recovered: '{recovered}'")
