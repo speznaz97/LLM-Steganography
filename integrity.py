@@ -81,7 +81,8 @@ def _cover_digest(model, cfg) -> str:
                   temperature=getattr(cfg, "stego_temp", 1.0),
                   top_k=getattr(cfg, "syncpool_topk", 256),
                   prob_floor=getattr(cfg, "syncpool_floor", 1e-5),
-                  banned_bytes=tuple(cfg.banned_chars))
+                  banned_bytes=tuple(cfg.banned_chars),
+                  min_p=getattr(cfg, "syncpool_minp", 0.0))
     dc = Discop(key="probe", precision=32)
     h = hashlib.sha256()
     for msgs in _PROBE_MESSAGES:
@@ -121,6 +122,7 @@ def session_fingerprint(model, codec, cfg) -> str:
         f"stego_temp={getattr(cfg, 'stego_temp', 1.0)}|"
         f"topk={getattr(cfg, 'syncpool_topk', 256)}|"
         f"floor={getattr(cfg, 'syncpool_floor', 1e-5)}|"
+        f"minp={getattr(cfg, 'syncpool_minp', 0.0)}|"
         f"banned={tuple(cfg.banned_chars)}"
     )
     blob = "||".join([_cover_digest(model, cfg), _codec_digest(codec), wire_params])

@@ -83,12 +83,14 @@ class SyncPool:
     def __init__(self, model, key: str, temperature: float = 1.0,
                  top_k: int = 256, prob_floor: float = 1e-5,
                  banned_bytes: tuple[bytes, ...] = (),
-                 end_ids: tuple[int, ...] = ()):
+                 end_ids: tuple[int, ...] = (),
+                 min_p: float = 0.0):
         self.model = model
         self.key = key.encode("utf-8") if isinstance(key, str) else key
         self.temperature = temperature
         self.top_k = top_k
         self.prob_floor = prob_floor
+        self.min_p = min_p
         self.banned = tuple(
             b.encode("utf-8") if isinstance(b, str) else b for b in banned_bytes
         )
@@ -165,10 +167,16 @@ class SyncPool:
              allow_end: bool = False) -> PoolStep:
         probs = np_softmax(logits, self.temperature)
 
-        # reproducible truncation: top-k by probability, then a floor
+        # reproducible truncation: top-k by probability (a cap), then a floor,
+        # then min-p -- keep tokens with p >= min_p * p_max under the T=1
+        # distribution, so the cut follows the model's own confidence (few
+        # candidates when it is sure, many when it isn't) independent of T
         k = min(self.top_k, probs.shape[0])
         cand = np.argpartition(probs, -k)[-k:]
         cand = cand[probs[cand] >= self.prob_floor]
+        if self.min_p > 0.0:
+            base = np_softmax(logits, 1.0)
+            cand = cand[base[cand] >= self.min_p * float(base.max())]
 
         specials = self.model.special_ids
         ids: list[int] = []

@@ -5,8 +5,10 @@ class StegoConfig:
     # ---- cover stage: SyncPool (disambiguation) + Discop (sampler) ----
     stego_temp: float = 1.0          # cover sampling temperature; the main
                                      # capacity <-> naturalness dial
-    syncpool_topk: int = 256         # candidate set size before pooling
+    syncpool_topk: int = 256         # candidate set size cap before pooling
     syncpool_floor: float = 1e-5     # drop candidates below this probability
+    syncpool_minp: float = 0.0       # drop candidates below min_p * p_max (T=1);
+                                     # 0 = off (top-k / floor only)
 
     # rep_penalty is DEPRECATED. A repetition penalty distorts the token
     # distribution and so breaks Discop's distribution-preservation guarantee

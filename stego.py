@@ -94,7 +94,8 @@ def _make_syncpool(model: LlamaCppModel, cfg: StegoConfig) -> SyncPool:
                     top_k=getattr(cfg, "syncpool_topk", 256),
                     prob_floor=getattr(cfg, "syncpool_floor", 1e-5),
                     banned_bytes=tuple(cfg.banned_chars),
-                    end_ids=_end_ids(model))
+                    end_ids=_end_ids(model),
+                    min_p=getattr(cfg, "syncpool_minp", 0.0))
 
 def _cover_problem(cover: str, emitted: list[int], sp: SyncPool,
                    cfg: StegoConfig) -> Optional[str]:
@@ -226,13 +227,19 @@ def _embed(messages: list[dict], full_bits: list[int], model: LlamaCppModel,
         if problem is not None:
             problem = f"message {i + 1}/{len(covers)}: {problem}"
             break
-    return covers, problem, step, tail_step
+    return covers, problem, step, tail_step, (cur, spans)
 
 def generate_stego(messages: list[dict], secret: str, model: LlamaCppModel,
-                   codec: LLMTextCodec, cfg: StegoConfig) -> list[str]:
+                   codec: LLMTextCodec, cfg: StegoConfig,
+                   stats: Optional[dict] = None) -> list[str]:
     """Returns the cover as one or more consecutive assistant messages, to be
     sent in order: the model may end its turn mid-payload, and the rest of the
-    payload follows in a new turn. One keystream, keyed by `messages`, spans them all."""
+    payload follows in a new turn. One keystream, keyed by `messages`, spans them all.
+
+    If `stats` is given it is filled in for benchmarking: the exact token ids
+    sent (`ids`: prompt + messages + seams, `spans`: each message's slice of
+    it), payload/tail token counts, bit counts, the attempt that succeeded and
+    whether the message cap was hit."""
     print(f"  Secret: '{secret}'")
 
     # Zero-header payload with CRC prefix
@@ -253,10 +260,16 @@ def generate_stego(messages: list[dict], secret: str, model: LlamaCppModel,
         clear = [b ^ m for b, m in zip(unpack_bits(counter.to_bytes(4, "big"), 32)[-attempt_bits:], mask)]
         full_bits = clear + stream_cipher(payload, cfg.crypto_key, _derive_nonce(ctx, counter))
 
-        covers, problem, step, tail_step = _embed(messages, full_bits, model, cfg)
+        covers, problem, step, tail_step, (ids, spans) = _embed(messages, full_bits, model, cfg)
         print(f"\n  Done: {step} tok ({(len(raw_bits) / max(step, 1)):.2f} b/t) + {tail_step} tail tokens, "
               f"{len(covers)} message(s)")
         if problem is None:
+            if stats is not None:
+                # capped: the cover used every allowed message, so the last one
+                # could not end early (end-of-turn is disallowed there)
+                stats.update(ids=ids, spans=spans, payload_tokens=step, tail_tokens=tail_step,
+                             body_bits=len(raw_bits), total_bits=len(full_bits), attempt=attempt,
+                             capped=len(covers) >= max(1, getattr(cfg, "max_messages", 3)))
             return covers
         print(f"  [!] attempt {attempt}/{attempts} rejected: {problem}")
 
